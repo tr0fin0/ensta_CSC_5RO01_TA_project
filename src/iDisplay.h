@@ -3,11 +3,14 @@
 
 #include "msg.h"
 
+
+
 /**
 * Displays the message content
 * @param mBlock the message pointer
 */
 void messageDisplay(volatile MSG_BLOCK* mBlock);
+
 
 /**
 * Prints the number of produced and consumed messages. It prints also the difference.
