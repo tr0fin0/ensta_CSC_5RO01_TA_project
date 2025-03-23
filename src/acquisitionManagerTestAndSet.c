@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <fcntl.h>
+#include <stdatomic.h>
 #include "acquisitionManager.h"
 #include "msg.h"
 #include "iSensor.h"
@@ -12,70 +13,142 @@
 #include "debug.h"
 
 
-//producer count storage
-volatile unsigned int producedCount = 0;
+
+#define SEMAPHORE_FULL_NAME "/full"
+#define SEMAPHORE_EMPTY_NAME "/empty"
+#define SEMAPHORE_CHECK(sem)    \
+    if (sem != SEM_FAILED)      \
+        return ERROR_SUCCESS;   \
+                                \
+    perror("[sem_open");        \
+                                \
+    return ERROR_INIT;
+
+
+
+_Atomic volatile unsigned int produce_count = 0;
+_Atomic volatile int lock = 0;
 
 pthread_t producers[4];
 
-static void *produce(void *params);
+sem_t *semaphore_empty;
+sem_t *semaphore_full;
 
-/**
-* Semaphores and Mutex
-*/
-//TODO
+pthread_mutex_t mutex_write = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_index = PTHREAD_MUTEX_INITIALIZER;
+
+MSG_BLOCK buffer_data[256];
+_Atomic volatile unsigned int buffer_data_read = 0;
+_Atomic volatile unsigned int buffer_data_write = 0;
+
+int buffer_index[256];
+_Atomic volatile unsigned int buffer_index_read = 0;
+_Atomic volatile unsigned int buffer_index_write = 0;
+
+
 
 /*
-* Creates the synchronization elements.
-* @return ERROR_SUCCESS if the init is ok, ERROR_INIT otherwise
-*/
+ * Creates the synchronization elements.
+ * @return ERROR_SUCCESS if the init is ok, ERROR_INIT otherwise
+ */
 static unsigned int createSynchronizationObjects(void);
 
+
 /*
-* Increments the produce count.
-*/
+ * Increments the produce count.
+ */
 static void incrementProducedCount(void);
+
+
+static void *produce(void *params);
+
+
 
 static unsigned int createSynchronizationObjects(void)
 {
+	// Initialize semaphores
+	sem_unlink(SEMAPHORE_EMPTY_NAME);
+	sem_unlink(SEMAPHORE_FULL_NAME);
 
-	//TODO
-	printf("[acquisitionManager]Semaphore created\n");
-	return ERROR_SUCCESS;
+	semaphore_empty = sem_open(SEMAPHORE_EMPTY_NAME, O_CREAT, 0644, 255);
+	semaphore_full = sem_open(SEMAPHORE_FULL_NAME, O_CREAT, 0644, 0);
+
+	SEMAPHORE_CHECK(semaphore_empty);
+	SEMAPHORE_CHECK(semaphore_full);
+
+    printf("[acquisitionManager] Semaphore created\n");
+
+    return ERROR_SUCCESS;
 }
+
 
 static void incrementProducedCount(void)
 {
-	//TODO
+	int expected = 0;
+	while (!atomic_compare_exchange_weak(&lock, &expected, 1));
+
+    produce_count++;
+    lock = 0;
 }
 
 unsigned int getProducedCount(void)
 {
+	int expected = 0;
 	unsigned int p = 0;
-	//TODO
-	return p;
+	while (!atomic_compare_exchange_weak(&lock, &expected, 1));
+
+    p = produce_count;
+    lock = 0;
+
+    return p;
 }
 
+MSG_BLOCK getMessage(void)
+{
+	sem_wait(semaphore_full);
 
-MSG_BLOCK getMessage(void){
-	//TODO
+    int index_local = buffer_index[buffer_index_read];
+
+	buffer_index_read = (buffer_index_read + 1) % 256;
+	MSG_BLOCK message = buffer_data[index_local];
+
+    sem_post(semaphore_empty);
+
+    return message;
 }
 
-//TODO create accessors to limit semaphore and mutex usage outside of this C module.
+void writeMessage(MSG_BLOCK message)
+{
+	sem_wait(semaphore_empty);
+
+    pthread_mutex_lock(&mutex_write);
+	int index_local = buffer_index_write;
+	buffer_index_write = (buffer_index_write + 1) % 256;
+	pthread_mutex_unlock(&mutex_write);
+
+	buffer_data[index_local] = message;
+
+	pthread_mutex_lock(&mutex_index);
+	buffer_index[buffer_index_write] = index_local;
+	buffer_data_write = (buffer_data_write + 1) % 256;
+	pthread_mutex_unlock(&mutex_index);
+
+	sem_post(semaphore_full);
+}
 
 unsigned int acquisitionManagerInit(void)
 {
 	unsigned int i;
-	printf("[acquisitionManager]Synchronization initialization in progress...\n");
-	fflush( stdout );
+	printf("[acquisitionManager] Synchronization initialization in progress...\n");
+	fflush(stdout);
+
 	if (createSynchronizationObjects() == ERROR_INIT)
 		return ERROR_INIT;
-	
-	printf("[acquisitionManager]Synchronization initialization done.\n");
+
+	printf("[acquisitionManager] Synchronization initialization done.\n");
 
 	for (i = 0; i < PRODUCER_COUNT; i++)
-	{
-		//TODO
-	}
+		pthread_create(&producers[i], NULL, produce, (void *)i);
 
 	return ERROR_SUCCESS;
 }
@@ -84,24 +157,34 @@ void acquisitionManagerJoin(void)
 {
 	unsigned int i;
 	for (i = 0; i < PRODUCER_COUNT; i++)
-	{
-		//TODO
-	}
+		pthread_join(producers[i], NULL);
 
-	//TODO
-	printf("[acquisitionManager]Semaphore cleaned\n");
+	sem_destroy(semaphore_empty);
+	sem_destroy(semaphore_full);
+
+    printf("[acquisitionManager] Semaphore cleaned\n");
 }
 
-void *produce(void* params)
+void *produce(void *params)
 {
-	D(printf("[acquisitionManager]Producer created with id %d\n", gettid()));
+	D(printf("[acquisitionManager] Producer created with id %d\n", gettid()));
 	unsigned int i = 0;
+	unsigned int index_producer = (unsigned int)params;
+
 	while (i < PRODUCER_LOOP_LIMIT)
 	{
 		i++;
-		sleep(PRODUCER_SLEEP_TIME+(rand() % 5));
-		//TODO
+		sleep(PRODUCER_SLEEP_TIME + (rand() % 5));
+		MSG_BLOCK message_lock;
+
+		getInput(index_producer, &message_lock);
+		if (messageCheck(&message_lock) == 0)
+			printf("[acquisitionManager] Message corrupted\n");
+
+        writeMessage(message_lock);
+		incrementProducedCount();
 	}
+
 	printf("[acquisitionManager] %d termination\n", gettid());
-	//TODO
+	pthread_exit(NULL);
 }
