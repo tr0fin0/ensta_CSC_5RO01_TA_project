@@ -3,6 +3,8 @@
 
 #include "msg.h"
 
+
+
 //The application return code
 #define ERROR_INIT 			1
 #define ERROR_SUCCESS		0
