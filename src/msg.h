@@ -1,22 +1,34 @@
 #ifndef MSG_H
 #define MSG_H
 
-//Message data size
+
+
 #define DATA_SIZE 256
 
-//message type definition
+
 typedef struct MSG_BLOCK_TAG
 {
 	unsigned int checksum;
 	unsigned int mData[DATA_SIZE];
 } MSG_BLOCK;
 
+
+
+typedef struct MSG_BLOCK_TAG_ACCUMULATED
+{
+	MSG_BLOCK message_block;
+	unsigned int consumed_count;
+} MSG_BLOCK_ACCUMULATED;
+
+
+
 /**
 * Displays the message content
-* @param mBlock the message pointer
+* @param message_block the message pointer
 * @return 1 if the checksum is ok, 0 otherwise
 */
-unsigned int messageCheck(volatile MSG_BLOCK* mBlock);
+unsigned int messageCheck(volatile MSG_BLOCK* message_block);
+
 
 /**
 * Adds to the src message the content of add message
