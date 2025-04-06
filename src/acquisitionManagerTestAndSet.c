@@ -82,23 +82,32 @@ static unsigned int createSynchronizationObjects(void)
 }
 
 
+static void pCountLockTake(void)
+{
+    int expected = 0;
+    while (!atomic_compare_exchange_weak(&lock, &expected, 1))
+        expected = 0;
+}
+
+static void pCountLockRelease(void)
+{
+    lock = 0;
+}
+
 static void incrementProducedCount(void)
 {
-	int expected = 0;
-	while (!atomic_compare_exchange_weak(&lock, &expected, 1));
-
+    pCountLockTake();
     produce_count++;
-    lock = 0;
+    pCountLockRelease();
 }
 
 unsigned int getProducedCount(void)
 {
-	int expected = 0;
-	unsigned int p = 0;
-	while (!atomic_compare_exchange_weak(&lock, &expected, 1));
+    unsigned int p = 0;
 
+    pCountLockTake();
     p = produce_count;
-    lock = 0;
+    pCountLockRelease();
 
     return p;
 }
