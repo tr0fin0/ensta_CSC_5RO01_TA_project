@@ -1,0 +1,173 @@
+@startuml
+!pragma teoz true
+box "Terminal Process"
+    participant bash
+
+    box "AcquisitionManager" #F3E5F5
+        participant "Main" as main
+        participant "AcquisitionManager" as acquisitionManager
+        participant "producer[i]: pthread_t" as producer
+        participant "mutex_write :pthread_mutex_t" as mutex_write
+        participant "mutex_index: pthread_mutex_t" as mutex_index
+        participant "semaphore_empty: sem(255)" as semaphore_empty
+        participant "semaphore_full: sem(0)" as semaphore_full
+        participant "index: int" as index
+        participant "buffer_index: int" as buffer_index
+        participant "buffer_data: MSG_BLOCK" as buffer_data
+    end box
+
+    box "MessageAdder" #B2DFDB
+        participant "consumer: pthread_t" as consumer
+        participant "messageAdder" as messageAdder
+        participant "mutex mutex_t" as mutex
+        participant "message_output: MSG_BLOCK" as message_output
+    end box
+
+    box "DisplayManager" #FFCCBC
+        participant "display_thread: pthread_t" as display_thread
+        participant "displayManager" as displayManager
+    end box
+end box
+
+activate bash
+    bash -> main: ./AcquisitionManager
+
+activate main
+    main->acquisitionManager: AcquisitionManagerInit
+
+activate acquisitionManager
+acquisitionManager-> buffer_data: create buffer
+    activate buffer_data
+    return
+
+    acquisitionManager-> producer: pthread_create
+    activate producer #FFBBBB
+        producer -> acquisitionManager: writeMessage
+
+    note over acquisitionManager : Writing Message
+
+    acquisitionManager -> semaphore_empty : sem_wait
+    activate semaphore_empty
+return
+
+acquisitionManager -> mutex_write : pthread_mutex_lock
+    activate mutex_write
+return
+
+acquisitionManager -> index: get and increment
+    activate index
+return
+
+acquisitionManager -> mutex_write : pthread_mutex_unlock
+    activate mutex_write
+return
+
+acquisitionManager -> buffer_data : Write data
+    activate buffer_data
+return
+
+acquisitionManager -> mutex_index : pthread_mutex_lock
+activate mutex_index
+return
+
+acquisitionManager -> buffer_index : store index
+activate buffer_index
+return
+
+acquisitionManager -> mutex_index : pthread_mutex_unlock
+activate mutex_index
+return
+
+acquisitionManager -> semaphore_full: sem_post
+activate semaphore_full
+return
+
+producer -> acquisitionManager: pthread_exit
+deactivate producer
+
+bash -> messageAdder: ./MessageAdder
+activate messageAdder
+
+messageAdder -> consumer: pthread_create
+activate consumer #FFBBBB
+
+consumer -> acquisitionManager: getMessage
+note over acquisitionManager: Retrieving Message
+
+acquisitionManager -> semaphore_full: sem_wait
+activate semaphore_full
+return
+
+acquisitionManager -> index: read index
+activate index
+return
+
+acquisitionManager -> buffer_index: read buffer index
+activate buffer_index
+return
+
+acquisitionManager -> buffer_data: read message
+activate buffer_data
+return
+
+acquisitionManager -> semaphore_empty: sem_post
+activate semaphore_empty
+return
+
+acquisitionManager -> messageAdder: notifyMessageRetrieved
+note over messageAdder: Message Successfully Retrieved
+
+consumer -> messageAdder: store message
+
+messageAdder -> mutex: pthread_mutex_lock
+activate mutex
+return
+
+messageAdder -> message_output: add message
+activate message_output
+return
+
+messageAdder -> mutex: pthread_mutex_unlock
+activate mutex
+return
+
+consumer -> messageAdder: pthread_exit
+deactivate consumer
+
+bash -> displayManager: ./DisplayManager
+activate displayManager
+
+displayManager -> display_thread: pthread_create
+activate display_thread #FFBBBB
+
+display_thread -> messageAdder: getCurrentSum
+activate messageAdder
+
+messageAdder -> mutex: pthread_mutex_lock
+activate mutex
+return
+
+messageAdder -> message_output: read messages
+activate message_output
+return
+
+messageAdder -> mutex: pthread_mutex_unlock
+activate mutex
+return
+
+messageAdder -> display_thread: return data
+deactivate messageAdder
+
+display_thread -> displayManager: pthread_exit
+deactivate display_thread
+
+displayManager -> bash: end DisplayManager
+deactivate displayManager
+
+acquisitionManager -> main: end AcquisitionManager
+deactivate acquisitionManager
+
+main -> bash: end program
+deactivate main
+
+@enduml

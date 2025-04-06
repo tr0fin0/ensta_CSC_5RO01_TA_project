@@ -4,15 +4,21 @@
 #include <semaphore.h>
 #include <fcntl.h>
 
+
+
 #define ERROR_INIT 1
 #define ERROR_SUCCESS 0
 #define SEMAPHORE_INITIAL_VALUE 0
 #define SEM_NAME "/preambule_sem"
 
+
+
 pthread_t thread_1;
 sem_t *semaphore;
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
 
 void *produce(void *params)
 {
@@ -29,6 +35,8 @@ void *produce(void *params)
     printf("Thread ended\n");
     pthread_exit(NULL);
 }
+
+
 
 int main()
 {
